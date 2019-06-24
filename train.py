@@ -128,9 +128,180 @@ def cal_loss(logits, ground, smoothing=True):
     return loss
 
 
+
+# evaluate an epoch
+def eval_epoch(model, validation_data, device, n_gpu, logger, tokenizer):
+    ''' Evaluate a single epoch result
+    
+    @param model: model to eval
+    @valication_data: data for evaluation
+    @device
+    ...
+
+    @return loss_per_word: validation loss
+    @accuracy: valication accuracy
+    '''
+
+    model.eval()
+    
+    batch = next(iter(validation_data))
+    batch = tuple(t.to(device) for t in batch)
+    # beam_decode
+    if n_gpu > 1:
+        pred, _ = model.module.beam_decode(batch[0], batch[1], 3, 3)
+    else:
+        pred, _ = model.beam_decode(batch[0], batch[1],3,3)
+    logger.info(f'Source: {"".join(tokenizer.convert_ids_to_tokens(batch[0][0].cpu().numpy()))}')
+    logger.info(f'Beam Generated: {"".join(tokenizer.convert_ids_to_tokens(pred[0][0]))}')
+    # if n_gpu > 1:
+    #     pred = model.module.greedy_decode(batch[0], batch[1])
+    # else:
+    #     pred = model.greedy_decode(batch[0], batch[1])
+    # logger.info(f'Beam Generated: {tokenizer.convert_ids_to_tokens(pred[0].cpu().numpy())}')
+
+    return
+
+    ## EVAL WITH BATCHED DATA
+    # model.eval()
+
+    # total_loss = 0
+    # n_word_total = 0
+    # n_word_correct = 0
+
+    # with torch.no_grad():
+    #     for batch in tqdm(
+    #             validation_data, mininterval=2,
+    #             desc='  - (Validation) ', leave=False):
+
+    #         # prepare data
+    #         src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
+    #         gold = tgt_seq[:, 1:]
+
+    #         # forward
+    #         pred = model(src_seq, src_pos, tgt_seq, tgt_pos)
+    #         loss, n_correct = cal_performance(pred, gold, smoothing=False)
+
+    #         # note keeping
+    #         total_loss += loss.item()
+
+    #         non_pad_mask = gold.ne(Constants.PAD)
+    #         n_word = non_pad_mask.sum().item()
+    #         n_word_total += n_word
+    #         n_word_correct += n_correct
+
+    # loss_per_word = total_loss/n_word_total
+    # accuracy = n_word_correct/n_word_total
+    # return loss_per_word, accuracy
+
+# training
+def train(model, train_dataloader,eval_dataloader, optimizer, device, args, n_gpu, logger ):
+    """Perform a single train epoch
+
+    @param model(torch.nn.Module): model for training
+    @param data :dataloader 
+    @param optim: optimizer
+    @param device
+
+
+    @return loss_per_word, accuracy
+
+    """
+
+
+    global_step = 0
+    for i in range(int(args.num_train_epochs)):
+        
+        
+        # do training
+        model.train()
+        tr_loss = 0
+        nb_tr_examples, nb_tr_steps = 0, 0
+
+        for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
+            batch = tuple(t.to(device) for t in batch)
+            logits = model(*batch)
+            loss, _ = cal_performance(logits, batch[2])
+
+            # process grad
+            if n_gpu > 1:
+                loss = loss.mean()
+            if args.gradient_accumulation_steps > 1:
+                loss = loss / args.gradient_accumulation_steps
+
+            # bp
+            loss.backward()
+            tr_loss += loss.item()
+            nb_tr_examples += batch[0].size(0)
+            nb_tr_steps += 1
+
+            if (step + 1) % args.gradient_accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                global_step += 1
+            if (step + 1) % args.print_every == 0:
+                logger.info(f'Epoch {i}, step {step}, loss {loss.item()}.')
+                logger.info(f'Ground: {"".join(tokenizer.convert_ids_to_tokens(batch[2][0].cpu().numpy()))}')
+                logger.info(f'Generated: {"".join(tokenizer.convert_ids_to_tokens(logits[0].max(-1)[1].cpu().numpy()))}')
+        
+        # SAVE
+
+        if args.output_dir is not None:
+            state_dict = model.module.state_dict() if n_gpu > 1 else model.state_dict()
+            torch.save(state_dict, os.path.join(model_path, 'BertAbsSum_{}.bin'.format(i)))
+            logger.info('Model saved')
+
+        # EVAL
+
+        if eval_dataloader is not None:
+            eval_epoch(model, eval_dataloader, device, n_gpu, logger, tokenizer)
+
+        logger.info(f'Epoch {i} finished.')
+
+
+
+    # model.train()
+
+    # total_loss = 0
+    # n_word_total = 0
+    # n_word_correct = 0
+
+    # for batch in tqdm(
+    #         training_data, mininterval=2,
+    #         desc='  - (Training)   ', leave=False):
+
+    #     # prepare data
+    #     src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
+    #     gold = tgt_seq[:, 1:]
+
+    #     # forward
+    #     optimizer.zero_grad()
+    #     pred = model(src_seq, src_pos, tgt_seq, tgt_pos)
+
+    #     # backward
+    #     loss, n_correct = cal_performance(pred, gold, smoothing=smoothing)
+    #     loss.backward()
+
+    #     # update parameters
+    #     optimizer.step_and_update_lr()
+
+    #     # note keeping
+    #     total_loss += loss.item()
+
+    #     non_pad_mask = gold.ne(Constants.PAD)
+    #     n_word = non_pad_mask.sum().item()
+    #     n_word_total += n_word
+    #     n_word_correct += n_correct
+
+    # loss_per_word = total_loss/n_word_total
+    # accuracy = n_word_correct/n_word_total
+    # return loss_per_word, accuracy
+
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
 
+    # self check
     if args.GPU_index != '-1':
         os.environ["CUDA_VISIBLE_DEVICES"] = args.GPU_index
     if not torch.cuda.is_available():
@@ -230,58 +401,15 @@ if __name__ == "__main__":
     logger.info("  Num examples = %d", len(train_examples))
     logger.info("  Batch size = %d", args.train_batch_size)
     logger.info("  Num steps = %d", num_train_optimization_steps)
-    model.train()
-    global_step = 0
-    for i in range(int(args.num_train_epochs)):
-        # do training
-        model.train()
-        tr_loss = 0
-        nb_tr_examples, nb_tr_steps = 0, 0
-        for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
-            batch = tuple(t.to(device) for t in batch)
-            logits = model(*batch)
-            loss, _ = cal_performance(logits, batch[2])
-            if n_gpu > 1:
-                loss = loss.mean()
-            if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
-            loss.backward()
-            tr_loss += loss.item()
-            nb_tr_examples += batch[0].size(0)
-            nb_tr_steps += 1
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-                global_step += 1
-            if (step + 1) % args.print_every == 0:
-                logger.info(f'Epoch {i}, step {step}, loss {loss.item()}.')
-                logger.info(f'Ground: {"".join(tokenizer.convert_ids_to_tokens(batch[2][0].cpu().numpy()))}')
-                logger.info(f'Generated: {"".join(tokenizer.convert_ids_to_tokens(logits[0].max(-1)[1].cpu().numpy()))}')
-        # do evaluation
-        if args.output_dir is not None:
-            state_dict = model.module.state_dict() if n_gpu > 1 else model.state_dict()
-            torch.save(state_dict, os.path.join(model_path, 'BertAbsSum_{}.bin'.format(i)))
-            logger.info('Model saved')
-        if eval_dataloader is not None:
-            model.eval()
-            batch = next(iter(eval_dataloader))
-            batch = tuple(t.to(device) for t in batch)
-            # beam_decode
-            if n_gpu > 1:
-                pred, _ = model.module.beam_decode(batch[0], batch[1], 3, 3)
-            else:
-                pred, _ = model.beam_decode(batch[0], batch[1],3,3)
-            logger.info(f'Source: {"".join(tokenizer.convert_ids_to_tokens(batch[0][0].cpu().numpy()))}')
-            logger.info(f'Beam Generated: {"".join(tokenizer.convert_ids_to_tokens(pred[0][0]))}')
-            # if n_gpu > 1:
-            #     pred = model.module.greedy_decode(batch[0], batch[1])
-            # else:
-            #     pred = model.greedy_decode(batch[0], batch[1])
-            # logger.info(f'Beam Generated: {tokenizer.convert_ids_to_tokens(pred[0].cpu().numpy())}')
-        logger.info(f'Epoch {i} finished.')
+
+    # Train
+    train(model, train_dataloader, eval_dataloader, optimizer,device, args,n_gpu, logger)
+    
     with open(os.path.join(args.bert_model, 'bert_config.json'), 'r') as f:
         bert_config = json.load(f)
     config = {'bert_config': bert_config, 'decoder_config': decoder_config}
+
+    #dump config
     with open(os.path.join(model_path, 'config.json'), 'w') as f:
         json.dump(config, f)
     with open(os.path.join(model_path, 'bert_config.json'), 'w') as f:

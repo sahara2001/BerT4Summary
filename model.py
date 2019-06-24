@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 import os
 import numpy as np
-from transformer.Layers import EncoderLayer, DecoderLayer
+from transformer.Layers import DecoderLayer
 from transformer import Constants
 from transformer.Models import get_non_pad_mask, get_sinusoid_encoding_table, get_attn_key_pad_mask, get_subsequent_mask
 from pytorch_pretrained_bert.modeling import BertModel, BertConfig
