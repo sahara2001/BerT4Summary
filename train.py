@@ -20,7 +20,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TRAIN_FILE = 'train_big.csv'
+TRAIN_FILE = 'train_small.csv'
 
 parser = argparse.ArgumentParser()
 # Required parameters
@@ -193,6 +193,48 @@ def eval_epoch(model, validation_data, device, n_gpu, logger, tokenizer):
     # accuracy = n_word_correct/n_word_total
     # return loss_per_word, accuracy
 
+#perform single epoch
+def train_epoch(model, train_dataloader, optimizer, device ,args, n_gpu, logger):
+
+    """
+
+    @ return global_steps(int) : the number of gradient steps in this epoch
+    """
+    # do training
+    model.train()
+    global_step = 0
+    tr_loss = 0
+    nb_tr_examples, nb_tr_steps = 0, 0
+
+    for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
+        batch = tuple(t.to(device) for t in batch)
+        logits = model(*batch)
+        loss, _ = cal_performance(logits, batch[2])
+
+        # process grad
+        if n_gpu > 1:
+            loss = loss.mean()
+        if args.gradient_accumulation_steps > 1:
+            loss = loss / args.gradient_accumulation_steps
+
+        # bp
+        loss.backward()
+        tr_loss += loss.item()
+        nb_tr_examples += batch[0].size(0)
+        nb_tr_steps += 1
+
+        if (step + 1) % args.gradient_accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+            global_step += 1
+        if (step + 1) % args.print_every == 0:
+            logger.info(f'Epoch {i}, step {step}, loss {loss.item()}.')
+            logger.info(f'Ground: {"".join(tokenizer.convert_ids_to_tokens(batch[2][0].cpu().numpy()))}')
+            logger.info(f'Generated: {"".join(tokenizer.convert_ids_to_tokens(logits[0].max(-1)[1].cpu().numpy()))}')
+
+    return global_step
+
+
 # training
 def train(model, train_dataloader,eval_dataloader, optimizer, device, args, n_gpu, logger ):
     """Perform a single train epoch
@@ -211,38 +253,9 @@ def train(model, train_dataloader,eval_dataloader, optimizer, device, args, n_gp
     global_step = 0
     for i in range(int(args.num_train_epochs)):
         
-        
-        # do training
-        model.train()
-        tr_loss = 0
-        nb_tr_examples, nb_tr_steps = 0, 0
+        # TRAIN EPOCH
+        global_step += train_epoch(model,train_dataloader, optimizer, device, args, n_gpu, logger)
 
-        for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
-            batch = tuple(t.to(device) for t in batch)
-            logits = model(*batch)
-            loss, _ = cal_performance(logits, batch[2])
-
-            # process grad
-            if n_gpu > 1:
-                loss = loss.mean()
-            if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
-
-            # bp
-            loss.backward()
-            tr_loss += loss.item()
-            nb_tr_examples += batch[0].size(0)
-            nb_tr_steps += 1
-
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-                global_step += 1
-            if (step + 1) % args.print_every == 0:
-                logger.info(f'Epoch {i}, step {step}, loss {loss.item()}.')
-                logger.info(f'Ground: {"".join(tokenizer.convert_ids_to_tokens(batch[2][0].cpu().numpy()))}')
-                logger.info(f'Generated: {"".join(tokenizer.convert_ids_to_tokens(logits[0].max(-1)[1].cpu().numpy()))}')
-        
         # SAVE
 
         if args.output_dir is not None:
