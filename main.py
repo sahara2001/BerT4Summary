@@ -20,8 +20,6 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TRAIN_FILE = 'train_big.csv'
-
 parser = argparse.ArgumentParser()
 # Required parameters
 parser.add_argument("--data_dir",
@@ -173,9 +171,9 @@ if __name__ == "__main__":
     processor = LCSTSProcessor()
     tokenizer = BertTokenizer.from_pretrained(os.path.join(args.bert_model, 'vocab.txt'))
     logger.info('Loading train examples...')
-    if not os.path.exists(os.path.join(args.data_dir, TRAIN_FILE)):
+    if not os.path.exists(os.path.join(args.data_dir, 'train.csv')):
         raise ValueError(f'train.csv does not exist.')
-    train_examples = processor.get_examples(os.path.join(args.data_dir, TRAIN_FILE))
+    train_examples = processor.get_examples(os.path.join(args.data_dir, 'train_small.csv'))
     num_train_optimization_steps = int(len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
     logger.info('Converting train examples to features...')
     train_features = convert_examples_to_features(train_examples, args.max_src_len, args.max_tgt_len, tokenizer)
@@ -270,7 +268,7 @@ if __name__ == "__main__":
             if n_gpu > 1:
                 pred, _ = model.module.beam_decode(batch[0], batch[1], 3, 3)
             else:
-                pred, _ = model.beam_decode(batch[0], batch[1],3,3)
+                pred, _ = model.beam_decode(batch[0], batch[1])
             logger.info(f'Source: {"".join(tokenizer.convert_ids_to_tokens(batch[0][0].cpu().numpy()))}')
             logger.info(f'Beam Generated: {"".join(tokenizer.convert_ids_to_tokens(pred[0][0]))}')
             # if n_gpu > 1:
@@ -284,11 +282,5 @@ if __name__ == "__main__":
     config = {'bert_config': bert_config, 'decoder_config': decoder_config}
     with open(os.path.join(model_path, 'config.json'), 'w') as f:
         json.dump(config, f)
-    with open(os.path.join(model_path, 'bert_config.json'), 'w') as f:
-        json.dump(bert_config, f)
-    with open(os.path.join(model_path, 'decoder_config.json'), 'w') as f:
-        json.dump(decoder_config, f)
-    
     logger.info('Training finished')
-
 
