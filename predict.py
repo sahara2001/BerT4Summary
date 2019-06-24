@@ -10,7 +10,7 @@ import json
 from preprocess import LCSTSProcessor, convert_examples_to_features, create_dataset
 from model import BertAbsSum
 from pytorch_pretrained_bert.tokenization import BertTokenizer
-from utils import rouge
+from utils import rouge, rougeL
 
 BATCH_SIZE = 32
 
@@ -91,20 +91,28 @@ if __name__ == "__main__":
             sample_pred = "".join(tokenizer.convert_ids_to_tokens(pred[i][0])).split('[SEP]')[0] + '\n'
             f_log.write('\n**********\n')
             f_log.write('Source: ' + sample_src)
-            f_log.write('Glod: ' + sample_tgt)
+            f_log.write('Gold: ' + sample_tgt)
             f_log.write('Hypothesis: ' + sample_pred)
             # f_hyp.write(sample_pred)
             # f_ref.write(sample_tgt)
             hyp_list.append(sample_pred)
             ref_list.append(sample_tgt)
+
+    # CALC SCORES
     rouge_1 = rouge(hyp_list, ref_list, 1)
     rouge_2 = rouge(hyp_list, ref_list, 2)
+    rouge_3 = rouge(hyp_list, ref_list, 3)
+    rouge_L = rougeL(hyp_list, ref_list)
     logger.info('******Results******')
     logger.info(f'Rouge-1: {rouge_1}')
     logger.info(f'Rouge-2: {rouge_2}')
+    logger.info(f'Rouge-3: {rouge_3}')
+    logger.info(f'Rouge-L: {rouge_L}')
     f_log.write('**********\n')
     f_log.write(f'Rouge-1: {rouge_1}\n')
-    f_log.write(f'Rouge-2: {rouge_2}\n')   
+    f_log.write(f'Rouge-2: {rouge_2}\n') 
+    f_log.write(f'Rouge-3: {rouge_3}\n')  
+    f_log.write(f'Rouge-L: {rouge_L}\n')
     logger.info('Evaluation finished.')
 
         

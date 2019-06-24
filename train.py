@@ -347,7 +347,7 @@ if __name__ == "__main__":
             decoder_config['d_model'] = bert_config['hidden_size']
             decoder_config['d_inner'] = bert_config['hidden_size']
             decoder_config['vocab_size'] = bert_config['vocab_size']
-    
+    print(args.gradient_accumulation_steps) 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(args.gradient_accumulation_steps))
     
