@@ -1,6 +1,0 @@
-## ernie试用报告
-
-### 文本摘要测试结果
-在bert 与 ernie分别作为 encoder 并使用 transformer decoder条件下
-|rogue1| rogue2| rogue3| rogueL|
-|-|-|-|-|-|
